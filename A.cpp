@@ -20,20 +20,123 @@ k-го нуля, u — обновить значение элемента). Сл
 
 */
 
-class SegmentedTree {
+const uint16_t BLOCK_SIZE = 256;
+const uint16_t BLOCK_SIZE_SHIFT = 8;
+
+class SegmentedArray {
   std::vector<uint32_t> array;
+  std::vector<uint16_t> zeros;
 
 public:
-  SegmentedTree(std::vector<uint32_t> source) {
+  SegmentedArray(std::vector<uint32_t> source) {
     array = source;
+
+    size_t size = array.size();
+    size_t blocks_count = size >> BLOCK_SIZE_SHIFT;
+    if ((size & BLOCK_SIZE) > 0) {
+      blocks_count++;
+    }
+
+    zeros = std::vector<uint16_t>(blocks_count, 0);
+
+    for (size_t i = 0; i < size; i++) {
+      if (array[i] == 0) {
+        zeros[block_of_element(i)]++;
+      }
+    }
   }
 
   void update(size_t idx, uint32_t new_value) {
-    // TODO
+    idx--;
+
+    uint32_t old_value = array[idx];
+
+    if (old_value == new_value) {
+      return;
+    }
+
+    array[idx] = new_value;
+
+    if (old_value == 0) {
+      zeros[block_of_element(idx)]--;
+    }
+
+    if (new_value == 0) {
+      zeros[block_of_element(idx)]++;
+    }
   }
 
   size_t search(size_t left, size_t right, uint32_t k) {
-    // TODO
+    if (left > right) {
+      return -1;
+    }
+
+    left--; right--;
+
+    size_t left_block = block_of_element(left);
+    size_t right_block = block_of_element(right);
+
+    // Если границы попали на один блок, то считаем честно через цикл
+    if (left_block == right_block) {
+      uint32_t zeros_count = 0;
+      for (size_t i = left; i <= right; i++) {
+        if (array[i] == 0 && (++zeros_count == k)) {
+          return ++i;
+        }
+      }
+      return -1;
+    }
+
+    uint32_t zeros_count = 0;
+    size_t i = left;
+    size_t i_block = left_block;
+
+    // Считаем 0 в правой части блока, в который попала левая граница
+    while (i_block == left_block) {
+      if (array[i] == 0 && (++zeros_count == k)) {
+        return ++i;
+      }
+      i++;
+      i_block = block_of_element(i);
+    }
+
+    // Считаем 0 в блоках между блоками, в которые попали левая и правая границы
+    while (i_block < right_block) {
+      // Если в промежуточном блоке нашли нужный k-тый 0
+      if (zeros_count + zeros[i] >= k) {
+        // Честно итерируемся по блоку
+        i = first_index_of_block(i_block);
+        while (zeros_count < k) {
+          if (array[i] == 0) {
+            zeros_count++;
+          }
+          i++;
+        }
+        return i;
+      }
+
+      zeros_count += zeros[i];
+      i_block++;
+    }
+
+    // Честно итерируемся по блоку, в который попала правая граница
+    for (i = first_index_of_block(right_block); i <= right; i++) {
+      if (array[i] == 0 && (++zeros_count == k)) {
+        return ++i;
+      }
+    }
+
+    // Нужного k-того 0 на промежутке не нашли
+    return -1;
+  }
+
+private:
+  size_t block_of_element(size_t index) {
+    return index >> BLOCK_SIZE_SHIFT;
+  }
+
+  size_t first_index_of_block(size_t block) {
+    return block << BLOCK_SIZE_SHIFT;
   }
 };
 
@@ -41,15 +144,15 @@ int main() {
   uint32_t n;
   std::cin >> n;
 
+  // Считываем массив
   std::vector<uint32_t> array(n);
-
   uint32_t value;
   while (n-- > 0) {
     std::cin >> value;
     array.push_back(value);
   }
 
-  SegmentedTree tree(array);
+  SegmentedArray tree(array);
 
   uint32_t m;
   std::cin >> m;
@@ -59,6 +162,7 @@ int main() {
     std::cin >> command;
 
     if (command == 'u') {
+      // Обрабатываем команду обновления элемента
       size_t idx;
       std::cin >> idx;
 
@@ -67,6 +171,7 @@ int main() {
 
       tree.update(idx, new_value);
     } else {
+      // Обрабатываем команду поиска k-того 0
       size_t left;
       std::cin >> left;
 
