@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <random>
 #include <unordered_map>
 #include <vector>
 
@@ -86,7 +87,6 @@ struct Item {
   std::uint16_t score;
 };
 
-/// NB: Is not thread safe.
 class ItemFeed final {
 public:
   ItemFeed() : root_(nullptr) {
@@ -103,11 +103,10 @@ public:
     std::vector<std::uint64_t> result;
     result.reserve(limit);
 
-    Node* start = Kth(root_, position);  // 0-based
-    Node* cur = start;
-    for (std::size_t i = 0; i < limit && cur != nullptr; ++i) {
-      result.push_back(cur->item.id);
-      cur = Successor(cur);
+    Node* node = Kth(root_, position);
+    for (std::size_t i = 0; i < limit && node != nullptr; ++i) {
+      result.push_back(node->item.id);
+      node = Successor(node);
     }
     return result;
   }
@@ -120,88 +119,29 @@ public:
     std::vector<std::uint64_t> result;
     result.reserve(limit);
 
-    auto it = id_map_.find(uid);
-    Node* cur = it->second;
-    for (std::size_t i = 0; i < limit && cur != nullptr; ++i) {
-      result.push_back(cur->item.id);
-      cur = Successor(cur);
+    Node* node = id_map_.at(uid);
+    for (std::size_t i = 0; i < limit && node != nullptr; ++i) {
+      result.push_back(node->item.id);
+      node = Successor(node);
     }
     return result;
   }
 
   void Add(Item item) {
     assert(!Contains(item.id));
-    Node* z = new Node(item);
-    Node* y = nullptr;
-    Node* x = root_;
-    while (x != nullptr) {
-      y = x;
-      ++(x->subtree_size);
-      if (KeyLess(z->item, x->item)) {
-        x = x->left;
-      } else {
-        x = x->right;
-      }
-    }
-    z->parent = y;
-    if (y == nullptr) {
-      root_ = z;
-    } else if (KeyLess(z->item, y->item)) {
-      y->left = z;
-    } else {
-      y->right = z;
-    }
-    id_map_.emplace(item.id, z);
+    root_ = Insert(root_, new Node(item), nullptr);
   }
 
   void Update(Item item) {
     assert(Contains(item.id));
-    // remove old, insert new with same id (per instructions)
     Remove(item.id);
     Add(item);
   }
 
   void Remove(std::uint64_t uid) {
     assert(Contains(uid));
-    Node* z = id_map_[uid];
-
-    // If z has two children, we will copy successor's item into z and delete successor.
-    // Keep track of original id to erase from map later.
-    std::uint64_t original_id = z->item.id;
-
-    Node* node_to_delete = nullptr;
-    if (z->left == nullptr || z->right == nullptr) {
-      node_to_delete = z;
-    } else {
-      node_to_delete = Minimum(z->right);
-      // copy successor's item into z
-      // update id_map for successor's id to point to z
-      std::uint64_t succ_id = node_to_delete->item.id;
-      if (succ_id != z->item.id) {
-        // Move successor's item to z and update map
-        z->item = node_to_delete->item;
-        id_map_[z->item.id] = z;
-      }
-    }
-
-    Node* child = (node_to_delete->left != nullptr) ? node_to_delete->left : node_to_delete->right;
-    Transplant(node_to_delete, child);
-
-    // Update subtree sizes up the ancestor chain starting from the parent of the place where
-    // deletion happened
-    Node* update_from = node_to_delete->parent;
-    while (update_from != nullptr) {
-      update_from->subtree_size =
-          1 + SubtreeSize(update_from->left) + SubtreeSize(update_from->right);
-      update_from = update_from->parent;
-    }
-
-    // erase original id mapping
-    id_map_.erase(original_id);
-
-    // if we deleted a successor node but copied its id into z, we already updated id_map for that
-    // id above. delete the node memory
-    delete node_to_delete;
+    Item key = id_map_.at(uid)->item;
+    root_ = Erase(root_, key);
   }
 
 private:
@@ -211,7 +151,8 @@ private:
     Node* right = nullptr;
     Node* parent = nullptr;
     std::size_t subtree_size = 1;
-    explicit Node(Item it) : item(it) {
+    int priority;
+    explicit Node(const Item& it) : item(it), priority(rand_dist(rand_eng)) {
     }
   };
 
@@ -219,13 +160,14 @@ private:
   std::unordered_map<std::uint64_t, Node*> id_map_;
 
   static bool KeyLess(const Item& a, const Item& b) {
-    if (a.score != b.score)
-      return a.score < b.score;
-    return a.id < b.id;
+    return a.score != b.score ? a.score < b.score : a.id < b.id;
+  }
+
+  static bool KeyEqual(const Item& a, const Item& b) {
+    return a.score == b.score && a.id == b.id;
   }
 
   [[nodiscard]] bool Contains(std::uint64_t uid) const {
-    assert(1 <= uid);
     return id_map_.find(uid) != id_map_.end();
   }
 
@@ -237,63 +179,137 @@ private:
     return n ? n->subtree_size : 0;
   }
 
-  // standard BST transplant: replaces u with v in the tree
-  void Transplant(Node* u, Node* v) {
-    if (u->parent == nullptr) {
-      root_ = v;
-    } else if (u == u->parent->left) {
-      u->parent->left = v;
-    } else {
-      u->parent->right = v;
-    }
-    if (v != nullptr) {
-      v->parent = u->parent;
-    }
-  }
-
-  static Node* Minimum(Node* n) {
-    while (n->left != nullptr)
-      n = n->left;
-    return n;
-  }
-
-  static Node* Successor(Node* n) {
-    if (n->right != nullptr) {
-      return Minimum(n->right);
-    }
-    Node* p = n->parent;
-    while (p != nullptr && n == p->right) {
-      n = p;
-      p = p->parent;
-    }
-    return p;
-  }
-
-  // find k-th (0-based) smallest node
-  static Node* Kth(Node* root, std::size_t k) {
-    Node* cur = root;
-    while (cur != nullptr) {
-      std::size_t left_size = SubtreeSize(cur->left);
-      if (k < left_size) {
-        cur = cur->left;
-      } else if (k == left_size) {
-        return cur;
-      } else {
-        k -= left_size + 1;
-        cur = cur->right;
-      }
-    }
-    return nullptr;
-  }
-
-  // recursively free nodes
-  static void Clear(Node* n) {
-    if (n == nullptr)
+  static void Update(Node* n) {
+    if (!n)
       return;
-    Clear(n->left);
-    Clear(n->right);
-    delete n;
+    n->subtree_size = 1 + SubtreeSize(n->left) + SubtreeSize(n->right);
+    if (n->left)
+      n->left->parent = n;
+    if (n->right)
+      n->right->parent = n;
   }
+
+  // Treap split/merge
+  static void Split(Node* t, const Item& key, Node*& left, Node*& right) {
+    if (!t) {
+      left = right = nullptr;
+      return;
+    }
+    if (KeyLess(t->item, key) || KeyEqual(t->item, key)) {
+      Split(t->right, key, t->right, right);
+      left = t;
+    } else {
+      Split(t->left, key, left, t->left);
+      right = t;
+    }
+    Update(t);
+  }
+
+  static Node* Merge(Node* left, Node* right) {
+    if (!left)
+      return right;
+    if (!right)
+      return left;
+    if (left->priority > right->priority) {
+      left->right = Merge(left->right, right);
+      Update(left);
+      return left;
+    } else {
+      right->left = Merge(left, right->left);
+      Update(right);
+      return right;
+    }
+  }
+
+  Node* Insert(Node* root, Node* node, Node* parent) {
+    if (!root) {
+      node->parent = parent;
+      id_map_[node->item.id] = node;
+      return node;
+    }
+    if (node->priority > root->priority) {
+      Split(root, node->item, node->left, node->right);
+      node->parent = parent;
+      if (node->left)
+        node->left->parent = node;
+      if (node->right)
+        node->right->parent = node;
+      Update(node);
+      id_map_[node->item.id] = node;
+      return node;
+    } else if (KeyLess(node->item, root->item)) {
+      root->left = Insert(root->left, node, root);
+    } else {
+      root->right = Insert(root->right, node, root);
+    }
+    Update(root);
+    return root;
+  }
+
+  Node* Erase(Node* root, const Item& key) {
+    if (!root)
+      return nullptr;
+    if (KeyEqual(root->item, key)) {
+      id_map_.erase(root->item.id);
+      Node* merged = Merge(root->left, root->right);
+      if (merged)
+        merged->parent = root->parent;
+      delete root;
+      return merged;
+    } else if (KeyLess(key, root->item)) {
+      root->left = Erase(root->left, key);
+      if (root->left)
+        root->left->parent = root;
+    } else {
+      root->right = Erase(root->right, key);
+      if (root->right)
+        root->right->parent = root;
+    }
+    Update(root);
+    return root;
+  }
+
+  static Node* Kth(Node* root, std::size_t k) {
+    if (!root)
+      return nullptr;
+    std::size_t left_size = SubtreeSize(root->left);
+    if (k < left_size)
+      return Kth(root->left, k);
+    else if (k == left_size)
+      return root;
+    else
+      return Kth(root->right, k - left_size - 1);
+  }
+
+  // Successor using parent pointers
+  static Node* Successor(Node* node) {
+    if (!node)
+      return nullptr;
+    if (node->right) {
+      node = node->right;
+      while (node->left)
+        node = node->left;
+      return node;
+    }
+    Node* parent = node->parent;
+    while (parent && node == parent->right) {
+      node = parent;
+      parent = parent->parent;
+    }
+    return parent;
+  }
+
+  static void Clear(Node* node) {
+    if (!node)
+      return;
+    Clear(node->left);
+    Clear(node->right);
+    delete node;
+  }
+
+  // Random engine for treap priority
+  static inline std::mt19937 rand_eng{std::random_device{}()};
+  static inline std::uniform_int_distribution<int> rand_dist{1, 1'000'000'000};
 };
 
 }  // namespace youndex::express
