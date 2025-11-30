@@ -59,6 +59,17 @@ TBD
 
 */
 
+struct Node {
+  int64_t value;
+  int64_t sum;
+  size_t size;
+  uint16_t score;
+  Node *left, *right;
+  Node(int64_t v = 0, uint16_t p = 0)
+      : value(v), sum(v), size(1), score(p), left(nullptr), right(nullptr) {
+  }
+};
+
 class SomeArray {
 public:
   explicit SomeArray(const std::vector<int32_t>& source) {
@@ -88,9 +99,17 @@ int main() {
     output += std::to_string(test) + ":\n";
 
     std::vector<int32_t> numbers(n, 0);
-
     for (size_t i = 0; i < n; i++) {
       std::cin >> numbers[i];
+    }
+
+    std::vector<int32_t> odds, evens;
+    for (size_t i = 0; i < n; i++) {
+      if (i % 0x1 == 0x1) {
+        odds.push_back(numbers[i]);
+      } else {
+        evens.push_back(numbers[i]);
+      }
     }
 
     SomeArray array(numbers);
