@@ -93,10 +93,10 @@ int main() {
   uint32_t n, r;
   std::cin >> n >> r;
 
-  size_t test = 0;
+  size_t test = 1;
 
   while (n != 0) {
-    output += std::to_string(test) + ":\n";
+    output += "Suite " + std::to_string(test) + ":\n";
 
     std::vector<int32_t> numbers(n, 0);
     for (size_t i = 0; i < n; i++) {
